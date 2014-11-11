@@ -126,11 +126,31 @@ window.textsecure.throwHumanError = function(error, type, humanError) {
     throw e;
 }
 
-// message_callback({message: decryptedMessage, pushMessage: server-providedPushMessage})
-window.textsecure.subscribeToPush = function(message_callback) {
-    var socket = textsecure.api.getMessageWebsocket();
+var handleAttachment = function(attachment) {
+    function getAttachment() {
+        return textsecure.api.getAttachment(attachment.id.toString());
+    }
 
-    var resource = new WebSocketResource(socket, function(request) {
+    function decryptAttachment(encrypted) {
+        return textsecure.protocol.decryptAttachment(
+            encrypted,
+            attachment.key.toArrayBuffer()
+        );
+    }
+
+    function updateAttachment(data) {
+        attachment.data = data;
+    }
+
+    return getAttachment().
+      then(decryptAttachment).
+      then(updateAttachment);
+};
+
+// message_callback({message: decryptedMessage, pushMessage: server-providedPushMessage})
+window.textsecure.subscribeToPush = function(events) {
+    var socket = textsecure.api.getMessageWebsocket();
+    new WebSocketResource(socket, function(request) {
         // TODO: handle different types of requests. for now we only receive
         // PUT /messages <base64-encoded encrypted IncomingPushMessageSignal>
         textsecure.protocol.decryptWebsocketMessage(request.body).then(function(plaintext) {
@@ -141,9 +161,10 @@ window.textsecure.subscribeToPush = function(message_callback) {
 
             return textsecure.protocol.handleIncomingPushMessageProto(proto).then(function(decrypted) {
                 // Delivery receipt
-                if (decrypted === null)
-                    //TODO: Pass to UI
+                if (decrypted.type === textsecure.protobuf.IncomingPushMessageSignal.Type.RECEIPT) {
+                    events.trigger('receipt', proto);
                     return;
+                }
 
                 // Now that its decrypted, validate the message and clean it up for consumer processing
                 // Note that messages may (generally) only perform one action and we ignore remaining fields
@@ -155,16 +176,9 @@ window.textsecure.subscribeToPush = function(message_callback) {
                 if ((decrypted.flags & textsecure.protobuf.PushMessageContent.Flags.END_SESSION)
                             == textsecure.protobuf.PushMessageContent.Flags.END_SESSION)
                     return;
-                if (decrypted.flags != 0)
+                if (decrypted.flags != 0) {
                     throw new Error("Unknown flags in message");
-
-                var handleAttachment = function(attachment) {
-                    return textsecure.api.getAttachment(attachment.id.toString()).then(function(encryptedBin) {
-                        return textsecure.protocol.decryptAttachment(encryptedBin, attachment.key.toArrayBuffer()).then(function(decryptedBin) {
-                            attachment.data = decryptedBin;
-                        });
-                    });
-                };
+                }
 
                 var promises = [];
 
@@ -172,32 +186,38 @@ window.textsecure.subscribeToPush = function(message_callback) {
                     decrypted.group.id = getString(decrypted.group.id);
                     var existingGroup = textsecure.storage.groups.getNumbers(decrypted.group.id);
                     if (existingGroup === undefined) {
-                        if (decrypted.group.type != textsecure.protobuf.PushMessageContent.GroupContext.Type.UPDATE)
+                        if (decrypted.group.type != textsecure.protobuf.PushMessageContent.GroupContext.Type.UPDATE) {
                             throw new Error("Got message for unknown group");
+                        }
                         textsecure.storage.groups.createNewGroup(decrypted.group.members, decrypted.group.id);
                     } else {
                         var fromIndex = existingGroup.indexOf(proto.source);
 
-                        if (fromIndex < 0) //TODO: This could be indication of a race...
+                        if (fromIndex < 0) {
+                            //TODO: This could be indication of a race...
                             throw new Error("Sender was not a member of the group they were sending from");
+                        }
 
                         switch(decrypted.group.type) {
                         case textsecure.protobuf.PushMessageContent.GroupContext.Type.UPDATE:
                             if (decrypted.group.avatar !== null)
                                 promises.push(handleAttachment(decrypted.group.avatar));
 
-                            if (existingGroup.filter(function(number) { decrypted.group.members.indexOf(number) < 0 }).length != 0)
+                            if (existingGroup.filter(function(number) { decrypted.group.members.indexOf(number) < 0 }).length != 0) {
                                 throw new Error("Attempted to remove numbers from group with an UPDATE");
+                            }
                             decrypted.group.added = decrypted.group.members.filter(function(number) { return existingGroup.indexOf(number) < 0; });
 
                             var newGroup = textsecure.storage.groups.addNumbers(decrypted.group.id, decrypted.group.added);
                             if (newGroup.length != decrypted.group.members.length ||
-                                        newGroup.filter(function(number) { return decrypted.group.members.indexOf(number) < 0; }).length != 0)
+                                newGroup.filter(function(number) { return decrypted.group.members.indexOf(number) < 0; }).length != 0) {
                                 throw new Error("Error calculating group member difference");
+                            }
 
                             //TODO: Also follow this path if avatar + name haven't changed (ie we should start storing those)
-                            if (decrypted.group.avatar === null && decrypted.group.added.length == 0 && decrypted.group.name === null)
+                            if (decrypted.group.avatar === null && decrypted.group.added.length == 0 && decrypted.group.name === null) {
                                 return;
+                            }
 
                             //TODO: Strictly verify all numbers (ie dont let verifyNumber do any user-magic tweaking)
 
@@ -226,12 +246,19 @@ window.textsecure.subscribeToPush = function(message_callback) {
                     promises.push(handleAttachment(decrypted.attachments[i]));
                 return Promise.all(promises).then(function() {
                     message_callback({pushMessage: proto, message: decrypted});
+
+                    proto.message = decrypted;
+                    events.trigger('message', proto);
                 });
             })
         }).catch(function(e) {
-            // TODO: Show "Invalid message" messages?
-            console.log("Error handling incoming message: ");
-            console.log(e);
+            if (e.name = 'IncomingIdentityKeyError') {
+                proto.error = e;
+                events.trigger('message', proto);
+            } else {
+                console.log("Error handling incoming message:", e);
+                events.trigger('error', e);
+            }
         });
     });
 };

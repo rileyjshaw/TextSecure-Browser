@@ -55,12 +55,7 @@
                     unreadCount: 0,
                     active:      true});
 
-        if (this.get('type') == 'private') {
-          return textsecure.messaging.sendMessageToNumber(this.get('id'), message, attachments);
-        }
-        else {
-          return textsecure.messaging.sendMessageToGroup(this.get('groupId'), message, attachments);
-        }
+        return textsecure.messaging.sendMessageToNumber(this.get('id'), message, attachments);
     },
 
     receiveMessage: function(decrypted) {

@@ -23,17 +23,27 @@
             extension.navigator.tabs.create("options.html");
         } else {
             if (textsecure.registration.isDone()) {
+                var events = _.extend({}, Backbone.Events);
                 var conversations = new Whisper.ConversationCollection();
-                textsecure.subscribeToPush(function(message) {
+                events.on('message', function(message) {
                     conversations.addIncomingMessage(message).then(function(message) {
+                        // notify frontend listeners
                         extension.trigger('message', message);
                     });
-                    console.log("Got message from " + message.pushMessage.source + "." + message.pushMessage.sourceDevice +
-                                ': "' + getString(message.message.body) + '"');
+                    console.log(
+                        "Got message from",
+                        message.pushMessage.source + "." + message.pushMessage.sourceDevice,
+                        getString(message.message.body)
+                    );
                     var newUnreadCount = textsecure.storage.getUnencrypted("unreadCount", 0) + 1;
                     textsecure.storage.putUnencrypted("unreadCount", newUnreadCount);
                     extension.navigator.setBadgeText(newUnreadCount);
                 });
+                events.on('receipt', function(message) {
+                    console.log('delivery receipt for message ' + message.timestamp);
+                    //TODO: look up the message by [source, timestamp] and mark delivered
+                });
+                textsecure.subscribeToPush(events);
             }
         }
     };

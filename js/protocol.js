@@ -363,7 +363,8 @@ window.textsecure.protocol = function() {
     }
 
     var wipeIdentityAndTryMessageAgain = function(from, encodedMessage) {
-        //TODO: Wipe identity key!
+        // Wipe identity key!
+        textsecure.storage.removeEncrypted("devices" + number);
         return handlePreKeyWhisperMessage(from, encodedMessage);
     }
     textsecure.replay.registerFunction(wipeIdentityAndTryMessageAgain, textsecure.replay.Type.INIT_SESSION);
@@ -594,6 +595,7 @@ window.textsecure.protocol = function() {
     self.handleIncomingPushMessageProto = function(proto) {
         switch(proto.type) {
         case textsecure.protobuf.IncomingPushMessageSignal.Type.PLAINTEXT:
+            console.log("Warning: Received unencrypted message"); // TODO: throw unless test env.
             return Promise.resolve(textsecure.protobuf.PushMessageContent.decode(proto.message));
         case textsecure.protobuf.IncomingPushMessageSignal.Type.CIPHERTEXT:
             var from = proto.source + "." + (proto.sourceDevice == null ? 0 : proto.sourceDevice);
@@ -604,7 +606,7 @@ window.textsecure.protocol = function() {
             var from = proto.source + "." + (proto.sourceDevice == null ? 0 : proto.sourceDevice);
             return handlePreKeyWhisperMessage(from, getString(proto.message));
         case textsecure.protobuf.IncomingPushMessageSignal.Type.RECEIPT:
-            return Promise.resolve(null);
+            return Promise.resolve(proto);
         default:
             return new Promise(function(resolve, reject) { reject(new Error("Unknown message type")); });
         }
