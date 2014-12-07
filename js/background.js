@@ -32,9 +32,10 @@
                     });
                     console.log(
                         "Got message from",
-                        message.pushMessage.source + "." + message.pushMessage.sourceDevice,
-                        getString(message.message.body)
-                    );
+                        message.pushMessage.source + "." + message.pushMessage.sourceDevice);
+                    if (message.message) {
+                        console.log(getString(message.message.body));
+                    }
                     var newUnreadCount = textsecure.storage.getUnencrypted("unreadCount", 0) + 1;
                     textsecure.storage.putUnencrypted("unreadCount", newUnreadCount);
                     extension.navigator.setBadgeText(newUnreadCount);

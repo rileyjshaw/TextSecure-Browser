@@ -59,15 +59,15 @@
     },
 
     receiveMessage: function(decrypted) {
-        var conversation = this;
         var timestamp = decrypted.pushMessage.timestamp.toNumber();
         var m = this.messageCollection.add({
-            body           : decrypted.message.body,
+            body           : (decrypted.message && decrypted.message.body),
             timestamp      : timestamp,
             conversationId : this.id,
-            attachments    : decrypted.message.attachments,
+            attachments    : (decrypted.message && decrypted.message.attachments),
             type           : 'incoming',
-            sender         : decrypted.pushMessage.source
+            sender         : decrypted.pushMessage.source,
+            errors         : decrypted.errors
         });
 
         if (timestamp > this.get('timestamp')) {
@@ -132,7 +132,7 @@
 
     addIncomingMessage: function(decrypted) {
       var attributes = {};
-      if (decrypted.message.group) {
+      if (decrypted.message && decrypted.message.group) {
         attributes = {
           id         : decrypted.message.group.id,
           groupId    : decrypted.message.group.id,

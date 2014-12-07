@@ -159,7 +159,9 @@ window.textsecure.subscribeToPush = function(events) {
             // b) we should handle them gracefully and tell the user they received an invalid message
             request.respond(200, 'OK');
 
-            return textsecure.protocol.handleIncomingPushMessageProto(proto).then(function(decrypted) {
+            return new Promise(function(resolve) {
+                return textsecure.protocol.handleIncomingPushMessageProto(proto);
+            }).then(function(decrypted) {
                 // Delivery receipt
                 if (decrypted.type === textsecure.protobuf.IncomingPushMessageSignal.Type.RECEIPT) {
                     events.trigger('receipt', proto);
@@ -242,23 +244,25 @@ window.textsecure.subscribeToPush = function(events) {
                     }
                 }
 
-                for (var i in decrypted.attachments)
+                for (var i in decrypted.attachments) {
                     promises.push(handleAttachment(decrypted.attachments[i]));
+                }
                 return Promise.all(promises).then(function() {
-                    message_callback({pushMessage: proto, message: decrypted});
-
-                    proto.message = decrypted;
-                    events.trigger('message', proto);
+                    events.trigger('message', {
+                        message     : decrypted,
+                        pushMessage : proto
+                    });
                 });
-            })
+            }).catch(function(e) {
+                if (e.name = 'IncomingIdentityKeyError') {
+                    events.trigger('message', { pushMessage: proto, errors: [e] });
+                } else {
+                    throw e;
+                }
+            });
         }).catch(function(e) {
-            if (e.name = 'IncomingIdentityKeyError') {
-                proto.error = e;
-                events.trigger('message', proto);
-            } else {
-                console.log("Error handling incoming message:", e);
-                events.trigger('error', e);
-            }
+            console.log("Error handling incoming message:", e);
+            events.trigger('error', e);
         });
     });
 };
