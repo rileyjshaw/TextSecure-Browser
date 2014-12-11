@@ -26,9 +26,10 @@
             migrate: function(transaction, next) {
                 console.log('migratetion 1.0');
                 var messages = transaction.db.createObjectStore("messages");
-                messages.createIndex("conversation", "conversationId", { unique: false });
+                messages.createIndex("conversation", ["conversationId", "timestamp"], { unique: false });
 
                 var conversations = transaction.db.createObjectStore("conversations");
+                conversations.createIndex("active", ["active", "timestamp"], { unique: false });
                 conversations.createIndex("timestamp", "timestamp", { unique: false });
                 next();
             }

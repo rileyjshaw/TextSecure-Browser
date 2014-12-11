@@ -16,39 +16,135 @@
 
 ;(function() {
     'use strict';
+    if (!localStorage.getItem('first_install_ran')) {
+        localStorage.setItem('first_install_ran', 1);
+        extension.navigator.tabs.create("options.html");
+    }
 
-    function init() {
-        if (!localStorage.getItem('first_install_ran')) {
-            localStorage.setItem('first_install_ran', 1);
-            extension.navigator.tabs.create("options.html");
-        } else {
-            if (textsecure.registration.isDone()) {
-                var events = _.extend({}, Backbone.Events);
-                var conversations = new Whisper.ConversationCollection();
-                events.on('message', function(message) {
-                    conversations.addIncomingMessage(message).then(function(message) {
-                        // notify frontend listeners
-                        extension.trigger('message', message);
-                    });
-                    console.log(
-                        "Got message from",
-                        message.pushMessage.source + "." + message.pushMessage.sourceDevice);
-                    if (message.message) {
-                        console.log(getString(message.message.body));
-                    }
-                    var newUnreadCount = textsecure.storage.getUnencrypted("unreadCount", 0) + 1;
-                    textsecure.storage.putUnencrypted("unreadCount", newUnreadCount);
-                    extension.navigator.setBadgeText(newUnreadCount);
-                });
-                events.on('receipt', function(message) {
-                    console.log('delivery receipt for message ' + message.timestamp);
-                    //TODO: look up the message by [source, timestamp] and mark delivered
-                });
-                textsecure.subscribeToPush(events);
-            }
-        }
+    var conversations = new Whisper.ConversationCollection();
+    var messages      = new Whisper.MessageCollection();
+
+    function onMessageReceived(pushMessage) {
+        var timestamp = pushMessage.timestamp.toNumber()
+
+        var conversation = conversations.add({
+            id   : pushMessage.source,
+            type : 'private'
+        }, { merge : true } );
+
+        var message = messages.add({
+            id             : [pushMessage.source, timestamp],
+            source         : pushMessage.source,
+            sourceDevice   : pushMessage.sourceDevice,
+            relay          : pushMessage.relay,
+            timestamp      : timestamp,
+            conversationId : conversation.id,
+            type           : 'incoming'
+        });
+
+        var newUnreadCount = textsecure.storage.getUnencrypted("unreadCount", 0) + 1;
+        textsecure.storage.putUnencrypted("unreadCount", newUnreadCount);
+        extension.navigator.setBadgeText(newUnreadCount);
+
+        conversation.save().then(function() {
+            message.save().then(function() {
+                decryptMessage(pushMessage);
+            });
+        });
     };
 
-    textsecure.registration.addListener(init);
-    init();
+    function decryptMessage(proto) {
+        // This event can be triggered from the background script on an
+        // incoming message or from the frontend after the user accepts an
+        // identity key change.
+        return new Promise(function(resolve) {
+            resolve(textsecure.protocol.handleIncomingPushMessageProto(proto));
+        }).then(textsecure.handleDecrypted).then(function(decrypted) {
+            var timestamp = proto.timestamp.toNumber();
+            var attributes = {};
+            if (decrypted.group) {
+                attributes = {
+                    id         : decrypted.group.id,
+                    groupId    : decrypted.group.id,
+                    name       : decrypted.group.name || 'New group',
+                    type       : 'group',
+                };
+            } else {
+                attributes = {
+                    id         : proto.source,
+                    name       : proto.source,
+                    type       : 'private'
+                };
+            }
+            var conversation = conversations.add(attributes, {merge: true});
+            conversation.set({ timestamp: timestamp, active: true });
+
+            var message = messages.add({
+                id             : [proto.source, timestamp],
+                body           : decrypted.body,
+                timestamp      : timestamp,
+                conversationId : conversation.id,
+                attachments    : decrypted.attachments,
+                type           : 'incoming',
+                source         : proto.source
+            }, { merge : true } );
+
+            conversation.save().then(function() {
+                message.save().then(function() {
+                    extension.trigger('message', message); // notify frontend listeners
+                });
+            });
+        }).catch(function(e) {
+            if (e.name === 'IncomingIdentityKeyError') {
+                var message = messages.add({
+                    id     : [pushMessage.source, pushMessage.timestamp],
+                    errors : [e]
+                }, {merge: true}).save().then(function() {
+                    extension.trigger('message', message); // notify frontend listeners
+                });
+            } else {
+                throw e;
+            }
+        });
+    }
+
+    function onDeliveryReceipt(pushMessage) {
+        console.log('delivery receipt', pushMessage.source, pushMessage.timestamp);
+        //TODO: look up the message and mark delivered
+    };
+
+    if (textsecure.registration.isDone()) {
+        init();
+    } else {
+        extension.on('registration_done', init);
+    }
+
+    function init() {
+        if (!textsecure.registration.isDone()) { return; }
+
+        // initialize the socket and start listening for messages
+        var socket = textsecure.api.getMessageWebsocket();
+        new WebSocketResource(socket, function(request) {
+            // TODO: handle different types of requests. for now we only expect
+            // PUT /messages <encrypted IncomingPushMessageSignal>
+            textsecure.protocol.decryptWebsocketMessage(request.body).then(function(plaintext) {
+                var proto = textsecure.protobuf.IncomingPushMessageSignal.decode(plaintext);
+                // After this point, decoding errors are not the server's
+                // fault, and we should handle them gracefully and tell the
+                // user they received an invalid message
+                request.respond(200, 'OK');
+
+                if (proto.type === textsecure.protobuf.IncomingPushMessageSignal.Type.RECEIPT) {
+                    onDeliveryReceipt(proto);
+                } else {
+                    onMessageReceived(proto);
+                }
+
+            }).catch(function(e) {
+                console.log("Error handling incoming message:", e);
+                extension.trigger('error', e);
+                request.respond(500, 'Bad encrypted websocket message');
+            });
+        });
+    };
 })();

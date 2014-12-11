@@ -58,26 +58,6 @@
         return textsecure.messaging.sendMessageToNumber(this.get('id'), message, attachments);
     },
 
-    receiveMessage: function(decrypted) {
-        var timestamp = decrypted.pushMessage.timestamp.toNumber();
-        var m = this.messageCollection.add({
-            body           : (decrypted.message && decrypted.message.body),
-            timestamp      : timestamp,
-            conversationId : this.id,
-            attachments    : (decrypted.message && decrypted.message.attachments),
-            type           : 'incoming',
-            sender         : decrypted.pushMessage.source,
-            errors         : decrypted.errors
-        });
-
-        if (timestamp > this.get('timestamp')) {
-          this.set('timestamp', timestamp);
-        }
-        this.save({unreadCount: this.get('unreadCount') + 1, active: true});
-
-        return new Promise(function (resolve) { m.save().then(resolve(m)) });
-    },
-
     fetchMessages: function(options) {
         options = options || {};
         options.conditions = {conversationId: this.id };
@@ -128,26 +108,6 @@
       var conversation = this.add(attributes, {merge: true});
       conversation.save();
       return conversation;
-    },
-
-    addIncomingMessage: function(decrypted) {
-      var attributes = {};
-      if (decrypted.message && decrypted.message.group) {
-        attributes = {
-          id         : decrypted.message.group.id,
-          groupId    : decrypted.message.group.id,
-          name       : decrypted.message.group.name || 'New group',
-          type       : 'group',
-        };
-      } else {
-        attributes = {
-          id         : decrypted.pushMessage.source,
-          name       : decrypted.pushMessage.source,
-          type       : 'private'
-        };
-      }
-      var conversation = this.add(attributes, {merge: true});
-      return conversation.receiveMessage(decrypted);
     },
 
     destroyAll: function () {

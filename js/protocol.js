@@ -364,8 +364,8 @@ window.textsecure.protocol = function() {
 
     var wipeIdentityAndTryMessageAgain = function(from, encodedMessage) {
         // Wipe identity key!
-        textsecure.storage.removeEncrypted("devices" + from);
-        return handlePreKeyWhisperMessage(from, encodedMessage);
+        textsecure.storage.removeEncrypted("devices" + from.split('.')[0]);
+        extension.trigger('message:decrypt', encodedMessage);
     }
     textsecure.replay.registerFunction(wipeIdentityAndTryMessageAgain, textsecure.replay.Type.INIT_SESSION);
 
