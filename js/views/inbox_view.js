@@ -32,11 +32,11 @@
                 collection : this.conversations
             });
 
-            this.conversations.fetch({ reset: true }).then(function() {
-                this.conversations.reset(
-                    //TODO: Add an index to support this operation at the db level
-                    this.conversations.filter(function(c) { return c.get('active'); })
-                );
+            this.conversations.fetch({
+                // TODO: limit and offset for pagination/infinite scroll
+                reset: true,
+                conditions: {active: 1, timestamp: {$gte: 0}}
+            }).then(function() {
                 if (this.conversations.length) {
                     this.conversations.at(0).trigger('render');
                 }

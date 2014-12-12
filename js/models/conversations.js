@@ -23,11 +23,11 @@
     storeName: 'conversations',
     defaults: function() {
       return {
-        name: 'New Conversation',
-        image: '/images/default.png',
-        unreadCount: 0,
-        timestamp: new Date().getTime(),
-        active: true
+        name        : 'New Conversation',
+        image       : '/images/default.png',
+        unreadCount : 0,
+        timestamp   : new Date().getTime(),
+        active      : 1
       };
     },
 
@@ -51,9 +51,11 @@
             attachments      : attachments,
         }).save();
 
-        this.save({ timestamp:   timestamp,
-                    unreadCount: 0,
-                    active:      true});
+        this.save({
+            timestamp   : timestamp,
+            unreadCount : 0,
+            active      : 1
+        });
 
         return textsecure.messaging.sendMessageToNumber(this.get('id'), message, attachments);
     },
@@ -68,7 +70,8 @@
         var models = this.messageCollection.models;
         this.messageCollection.reset([]);
         _.each(models, function(message) { message.destroy(); });
-        return this.save({active: false});
+        this.unset('active');
+        return this.save();
     }
   });
 

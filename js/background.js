@@ -77,7 +77,7 @@
                 };
             }
             var conversation = conversations.add(attributes, {merge: true});
-            conversation.set({ timestamp: timestamp, active: true });
+            conversation.set({ timestamp: timestamp, active: 1 });
 
             var message = messages.add({
                 id             : [proto.source, timestamp],
