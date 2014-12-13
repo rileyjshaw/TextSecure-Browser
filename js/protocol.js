@@ -362,10 +362,17 @@ window.textsecure.protocol = function() {
         });
     }
 
-    var wipeIdentityAndTryMessageAgain = function(from, encodedMessage) {
+    var wipeIdentityAndTryMessageAgain = function(from, encodedMessage, message_id) {
         // Wipe identity key!
         textsecure.storage.removeEncrypted("devices" + from.split('.')[0]);
-        extension.trigger('message:decrypt', encodedMessage);
+        return handlePreKeyWhisperMessage(from, encodedMessage).then(
+            function(pushMessageContent) {
+                extension.trigger('message:decrypted', {
+                    message_id : message_id,
+                    data       : pushMessageContent
+                });
+            }
+        );
     }
     textsecure.replay.registerFunction(wipeIdentityAndTryMessageAgain, textsecure.replay.Type.INIT_SESSION);
 

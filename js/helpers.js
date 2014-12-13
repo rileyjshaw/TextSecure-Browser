@@ -147,7 +147,7 @@ var handleAttachment = function(attachment) {
       then(updateAttachment);
 };
 
-textsecure.handleDecrypted = function(decrypted) {
+textsecure.processDecrypted = function(decrypted) {
 
     // Now that its decrypted, validate the message and clean it up for consumer processing
     // Note that messages may (generally) only perform one action and we ignore remaining fields

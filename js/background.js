@@ -24,6 +24,12 @@
     var conversations = new Whisper.ConversationCollection();
     var messages      = new Whisper.MessageCollection();
 
+    if (textsecure.registration.isDone()) {
+        init();
+    } else {
+        extension.on('registration_done', init);
+    }
+
     function onMessageReceived(pushMessage) {
         var now = new Date().getTime();
         var timestamp = pushMessage.timestamp.toNumber()
@@ -34,7 +40,6 @@
         }, { merge : true } );
 
         var message = messages.add({
-            id             : [pushMessage.source, timestamp],
             source         : pushMessage.source,
             sourceDevice   : pushMessage.sourceDevice,
             relay          : pushMessage.relay,
@@ -50,63 +55,75 @@
 
         conversation.save().then(function() {
             message.save().then(function() {
-                decryptMessage(pushMessage);
+                return new Promise(function(resolve) {
+                    resolve(textsecure.protocol.handleIncomingPushMessageProto(pushMessage).then(
+                        function(pushMessageContent) {
+                            handlePushMessageContent(pushMessageContent, message);
+                        }
+                    ));
+                }).catch(function(e) {
+                    if (e.name === 'IncomingIdentityKeyError') {
+                        e.args.push(message.id);
+                        message.save({ errors : [e] }).then(function() {
+                            extension.trigger('message', message); // notify frontend listeners
+                        });
+                    } else {
+                        throw e;
+                    }
+                });
             });
         });
     };
 
-    function decryptMessage(proto) {
-        // This event can be triggered from the background script on an
+    extension.on('message:decrypted', function(options) {
+        var message = messages.add({id: options.message_id});
+        message.fetch().then(function() {
+            var pushMessageContent = handlePushMessageContent(
+                new textsecure.protobuf.PushMessageContent(options.data),
+                message
+            );
+        });
+    });
+
+    function handlePushMessageContent(pushMessageContent, message) {
+        // This function can be called from the background script on an
         // incoming message or from the frontend after the user accepts an
         // identity key change.
-        return new Promise(function(resolve) {
-            resolve(textsecure.protocol.handleIncomingPushMessageProto(proto));
-        }).then(textsecure.handleDecrypted).then(function(decrypted) {
+        return textsecure.processDecrypted(pushMessageContent).then(function(pushMessageContent) {
             var now = new Date().getTime();
-            var attributes = {};
-            if (decrypted.group) {
-                attributes = {
-                    id         : decrypted.group.id,
-                    groupId    : decrypted.group.id,
-                    name       : decrypted.group.name || 'New group',
-                    type       : 'group',
-                };
-            } else {
-                attributes = {
-                    id         : proto.source,
-                    name       : proto.source,
-                    type       : 'private'
-                };
-            }
-            var conversation = conversations.add(attributes, {merge: true});
-            conversation.set({ active_at: now });
+            var source = message.get('source');
+            var conversationId = pushMessageContent.group ? pushMessageContent.group.id : source;
+            var conversation = conversations.add({id: conversationId}, {merge: true});
+            conversation.fetch().always(function() {
+                var attributes = { active_at: now };
+                if (pushMessageContent.group) {
+                    attributes = {
+                        groupId    : pushMessageContent.group.id,
+                        name       : pushMessageContent.group.name,
+                        type       : 'group',
+                    };
+                } else {
+                    attributes = {
+                        name       : source,
+                        type       : 'private'
+                    };
+                }
+                conversation.set(attributes);
 
-            var message = messages.add({
-                id             : [proto.source, timestamp],
-                body           : decrypted.body,
-                conversationId : conversation.id,
-                attachments    : decrypted.attachments,
-                type           : 'incoming',
-                source         : proto.source,
-                decrypted_at   : now
-            }, { merge : true } );
+                message.set({
+                    body           : pushMessageContent.body,
+                    conversationId : conversation.id,
+                    attachments    : pushMessageContent.attachments,
+                    decrypted_at   : now,
+                    errors         : []
+                });
 
-            conversation.save().then(function() {
-                message.save().then(function() {
-                    extension.trigger('message', message); // notify frontend listeners
+                conversation.save().then(function() {
+                    message.save().then(function() {
+                        extension.trigger('message', message); // notify frontend listeners
+                    });
                 });
             });
-        }).catch(function(e) {
-            if (e.name === 'IncomingIdentityKeyError') {
-                var message = messages.add({
-                    id     : [pushMessage.source, pushMessage.timestamp],
-                    errors : [e]
-                }, {merge: true}).save().then(function() {
-                    extension.trigger('message', message); // notify frontend listeners
-                });
-            } else {
-                throw e;
-            }
         });
     }
 
@@ -142,12 +159,6 @@
             console.log('got delivery receipt for unknown message', pushMessage.source, timestamp);
         });
     };
-
-    if (textsecure.registration.isDone()) {
-        init();
-    } else {
-        extension.on('registration_done', init);
-    }
 
     function init() {
         if (!textsecure.registration.isDone()) { return; }
