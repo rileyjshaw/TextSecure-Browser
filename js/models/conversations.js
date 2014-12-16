@@ -58,6 +58,9 @@
             active_at   : now
         });
 
+        // TODO: extract the true outgoing timestamp sent to the server and
+        // update sent_at. It's currently set in sendmessage.js:L59. Until
+        // this happens delivery receipts will not be processed correctly.
         return textsecure.messaging.sendMessageToNumber(this.get('id'), message, attachments);
     },
 

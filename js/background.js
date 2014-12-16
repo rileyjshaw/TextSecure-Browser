@@ -111,8 +111,36 @@
     }
 
     function onDeliveryReceipt(pushMessage) {
-        console.log('delivery receipt', pushMessage.source, pushMessage.timestamp);
-        //TODO: look up the message and mark delivered
+        var timestamp = pushMessage.timestamp.toNumber();
+        var messages = new Whisper.MessageCollection();
+        console.log('delivery receipt', pushMessage.source, timestamp);
+        messages.fetch({
+            index: {
+                // 'receipt' index on sent_at
+                name: 'receipt',
+                lower: timestamp,
+                upper: timestamp
+            }
+        }).then(function() {
+            messages = messages.where({type: 'outgoing'});
+            var groups = new Whisper.ConversationCollection();
+            groups.fetch({ name: 'group', only: pushMessage.source }).then(function() {
+                var groupIds = groups.pluck('id');
+                for (var message in messages) {
+                    var deliveries     = message.get('delivered') || 0;
+                    var conversationId = message.get('conversationId');
+                    if (conversationId === pushMessage.source ||
+                        _.contains(groupIds, conversationId)) {
+                        message.save({delivered: deliveries + 1});
+                        return;
+                        // TODO: consider keeping a list of numbers we've
+                        // successfully delivered to?
+                    }
+                }
+            });
+        }).fail(function() {
+            console.log('got delivery receipt for unknown message', pushMessage.source, timestamp);
+        });
     };
 
     if (textsecure.registration.isDone()) {
