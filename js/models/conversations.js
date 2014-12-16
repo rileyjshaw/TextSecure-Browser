@@ -22,12 +22,13 @@
     database: Whisper.Database,
     storeName: 'conversations',
     defaults: function() {
+      var timestamp = new Date().getTime();
       return {
         name        : 'New Conversation',
         image       : '/images/default.png',
         unreadCount : 0,
-        timestamp   : new Date().getTime(),
-        active      : 1
+        timestamp   : timestamp,
+        active_at   : timestamp
       };
     },
 
@@ -42,19 +43,19 @@
     },
 
     sendMessage: function(message, attachments) {
-        var timestamp = Date.now();
+        var now = Date.now();
         this.messageCollection.add({
-            body             : message,
-            timestamp        : timestamp,
-            conversationId   : this.id,
-            type             : 'outgoing',
-            attachments      : attachments,
+            body           : message,
+            conversationId : this.id,
+            type           : 'outgoing',
+            attachments    : attachments,
+            sent_at        : now,
+            received_at    : now
         }).save();
 
         this.save({
-            timestamp   : timestamp,
             unreadCount : 0,
-            active      : 1
+            active_at   : now
         });
 
         return textsecure.messaging.sendMessageToNumber(this.get('id'), message, attachments);
@@ -62,15 +63,28 @@
 
     fetchMessages: function(options) {
         options = options || {};
-        options.conditions = {conversationId: this.id };
+        options.index = {
+            // 'conversation' index on conversationId
+            // WHERE conversationId = this.id ORDER received_at DESC
+            name  : 'conversation',
+            lower : [this.id],
+            upper : [this.id, Number.MAX_VALUE],
+            order : 'desc'
+        };
         return this.messageCollection.fetch(options);
+        // TODO pagination/infinite scroll
+        // limit: 10, offset: page*10,
+    },
+
+    archive: function() {
+        this.unset('active_at');
     },
 
     destroyMessages: function() {
         var models = this.messageCollection.models;
         this.messageCollection.reset([]);
         _.each(models, function(message) { message.destroy(); });
-        this.unset('active');
+        this.archive();
         return this.save();
     }
   });
@@ -88,7 +102,7 @@
       var attributes = {};
       attributes = {
         name      : name,
-        numbers   : recipients,
+        members   : recipients,
         type      : 'group',
       };
       var conversation = this.add(attributes, {merge: true});

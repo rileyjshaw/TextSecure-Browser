@@ -33,9 +33,13 @@
             });
 
             this.conversations.fetch({
-                // TODO: limit and offset for pagination/infinite scroll
-                reset: true,
-                conditions: {active: 1, timestamp: {$gte: 0}}
+                index: {
+                    name: 'inbox', // 'inbox' index on active_at
+                    order: 'desc'  // ORDER timestamp DESC
+                },
+                reset: true
+                // TODO pagination/infinite scroll
+                // limit: 10, offset: page*10,
             }).then(function() {
                 if (this.conversations.length) {
                     this.conversations.at(0).trigger('render');

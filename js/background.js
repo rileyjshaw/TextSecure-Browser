@@ -25,6 +25,7 @@
     var messages      = new Whisper.MessageCollection();
 
     function onMessageReceived(pushMessage) {
+        var now = new Date().getTime();
         var timestamp = pushMessage.timestamp.toNumber()
 
         var conversation = conversations.add({
@@ -37,7 +38,8 @@
             source         : pushMessage.source,
             sourceDevice   : pushMessage.sourceDevice,
             relay          : pushMessage.relay,
-            timestamp      : timestamp,
+            sent_at        : timestamp,
+            received_at    : now,
             conversationId : conversation.id,
             type           : 'incoming'
         });
@@ -60,7 +62,7 @@
         return new Promise(function(resolve) {
             resolve(textsecure.protocol.handleIncomingPushMessageProto(proto));
         }).then(textsecure.handleDecrypted).then(function(decrypted) {
-            var timestamp = proto.timestamp.toNumber();
+            var now = new Date().getTime();
             var attributes = {};
             if (decrypted.group) {
                 attributes = {
@@ -77,16 +79,16 @@
                 };
             }
             var conversation = conversations.add(attributes, {merge: true});
-            conversation.set({ timestamp: timestamp, active: 1 });
+            conversation.set({ active_at: now });
 
             var message = messages.add({
                 id             : [proto.source, timestamp],
                 body           : decrypted.body,
-                timestamp      : timestamp,
                 conversationId : conversation.id,
                 attachments    : decrypted.attachments,
                 type           : 'incoming',
-                source         : proto.source
+                source         : proto.source,
+                decrypted_at   : now
             }, { merge : true } );
 
             conversation.save().then(function() {
